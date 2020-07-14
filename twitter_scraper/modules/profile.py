@@ -27,10 +27,12 @@ class Profile:
 
     count = 'li[class*="--{}"] span[data-count]'
 
-    def __init__(self, username):
+    def __init__(self, username, proxies=None):
         self.session = HTMLSession()
         page = self.session.get(
-            f"https://twitter.com/{username}", headers=get_headers(username)
+            f"https://twitter.com/{username}",
+            headers=get_headers(username),
+            proxies=proxies,
         )
         self.username = username
         self.html = HTML(html=page.text, url="bunk", default_encoding="utf-8")

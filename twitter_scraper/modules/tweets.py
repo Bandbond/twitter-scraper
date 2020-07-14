@@ -7,7 +7,7 @@ from .exceptions import ProfileUnavailable
 from .headers import get_headers
 
 
-def get_tweets(query, pages=1):
+def get_tweets(query, pages=1, proxies=None):
     """Gets tweets for a given user, via the Twitter frontend API."""
 
     after_part = (
@@ -23,7 +23,7 @@ def get_tweets(query, pages=1):
     session = HTMLSession()
 
     def gen_tweets(pages):
-        r = session.get(url, headers=headers)
+        r = session.get(url, headers=headers, proxies=proxies)
 
         while pages > 0:
             try:
