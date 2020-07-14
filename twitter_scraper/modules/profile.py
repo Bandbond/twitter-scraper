@@ -1,7 +1,6 @@
 from requests_html import HTMLSession, HTML
-from lxml.etree import ParserError
-
-session = HTMLSession()
+from .exceptions import ProfileUnavailable
+from .headers import get_headers
 
 
 class Profile:
@@ -26,99 +25,95 @@ class Profile:
             - user_id
     """
 
+    count = 'li[class*="--{}"] span[data-count]'
+
     def __init__(self, username):
-        headers = {
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Referer": f"https://twitter.com/{username}",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.8",
-            "X-Twitter-Active-User": "yes",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept-Language": "en-US",
-        }
-
-        page = session.get(f"https://twitter.com/{username}", headers=headers)
+        self.session = HTMLSession()
+        page = self.session.get(
+            f"https://twitter.com/{username}", headers=get_headers(username)
+        )
         self.username = username
-        self.__parse_profile(page)
+        self.html = HTML(html=page.text, url="bunk", default_encoding="utf-8")
+        if self.html.html == '{"message":"This user does not exist."}':
+            raise ProfileUnavailable()
 
-    def __parse_profile(self, page):
+    def _count(self, name):
         try:
-            html = HTML(html=page.text, url="bunk", default_encoding="utf-8")
-        except KeyError:
-            raise ValueError(
-                f'Oops! Either "{self.username}" does not exist or is private.'
+            return int(
+                self.html.find(f'li[class*="--{name}"] span[data-count]')[0].attrs[
+                    "data-count"
+                ]
             )
-        except ParserError:
+        except Exception:
             pass
 
+    @property
+    def is_private(self):
+        return len(self.html.find(".ProfileHeaderCard-badges .Icon--protected")) > 0
+
+    @property
+    def is_verified(self):
+        return len(self.html.find(".ProfileHeaderCard-badges .Icon--verified")) > 0
+
+    @property
+    def location(self):
+        return self.html.find(".ProfileHeaderCard-locationText")[0].text or None
+
+    @property
+    def birthday(self):
+        return (
+            self.tml.find(".ProfileHeaderCard-birthdateText")[0].text.replace(
+                "Born ", ""
+            )
+            or None
+        )
+
+    @property
+    def profile_photo(self):
+        return self.html.find(".ProfileAvatar-image")[0].attrs["src"]
+
+    @property
+    def banner_photo(self):
         try:
-            self.is_private = html.find(".ProfileHeaderCard-badges .Icon--protected")[0]
-            self.is_private = True
-        except:
-            self.is_private = False
-
-        try:
-            self.is_verified = html.find(".ProfileHeaderCard-badges .Icon--verified")[0]
-            self.is_verified = True
-        except:
-            self.is_verified = False
-
-        self.location = html.find(".ProfileHeaderCard-locationText")[0].text
-        if not self.location:
-            self.location = None
-
-        self.birthday = html.find(".ProfileHeaderCard-birthdateText")[0].text
-        if self.birthday:
-            self.birthday = self.birthday.replace("Born ", "")
-        else:
-            self.birthday = None
-
-        self.profile_photo = html.find(".ProfileAvatar-image")[0].attrs["src"]
-
-        try:
-            self.banner_photo = html.find(".ProfileCanopy-headerBg img")[0].attrs["src"]
+            return self.html.find(".ProfileCanopy-headerBg img")[0].attrs["src"]
         except KeyError:
-            self.banner_photo = None
+            pass
 
-        page_title = html.find("title")[0].text
-        self.name = page_title[: page_title.find("(")].strip()
+    @property
+    def page_title(self):
+        return self.html.find("title")[0].text
 
-        self.user_id = html.find(".ProfileNav")[0].attrs["data-user-id"]
+    @property
+    def name(self):
+        return self.page_title[: self.page_title.find("(")].strip()
 
-        self.biography = html.find(".ProfileHeaderCard-bio")[0].text
-        if not self.birthday:
-            self.birthday = None
+    @property
+    def user_id(self):
+        return self.html.find(".ProfileNav")[0].attrs["data-user-id"]
 
-        self.website = html.find(".ProfileHeaderCard-urlText")[0].text
-        if not self.website:
-            self.website = None
+    @property
+    def biography(self):
+        return self.html.find(".ProfileHeaderCard-bio")[0].text
 
-        # get total tweets count if available
-        try:
-            q = html.find('li[class*="--tweets"] span[data-count]')[0].attrs["data-count"]
-            self.tweets_count = int(q)
-        except:
-            self.tweets_count = None
+    @property
+    def website(self):
+        return self.html.find(".ProfileHeaderCard-urlText")[0].text or None
 
-        # get total following count if available
-        try:
-            q = html.find('li[class*="--following"] span[data-count]')[0].attrs["data-count"]
-            self.following_count = int(q)
-        except:
-            self.following_count = None
+    @property
+    def tweets_count(self):
+        return self._count("tweets")
 
-        # get total follower count if available
-        try:
-            q = html.find('li[class*="--followers"] span[data-count]')[0].attrs["data-count"]
-            self.followers_count = int(q)
-        except:
-            self.followers_count = None
+    @property
+    def following_count(self):
+        return self._count("following")
 
-        # get total like count if available
-        try:
-            q = html.find('li[class*="--favorites"] span[data-count]')[0].attrs["data-count"]
-            self.likes_count = int(q)
-        except:
-            self.likes_count = None
+    @property
+    def followers_count(self):
+        return self._count("followers")
+
+    @property
+    def likes_count(self):
+        return self._count("favorites")
 
     def to_dict(self):
         return dict(
@@ -136,7 +131,7 @@ class Profile:
             following_count=self.following_count,
             is_verified=self.is_verified,
             is_private=self.is_private,
-            user_id=self.user_id
+            user_id=self.user_id,
         )
 
     def __dir__(self):
@@ -148,14 +143,14 @@ class Profile:
             "biography",
             "website",
             "profile_photo",
-            'banner_photo'
+            "banner_photo",
             "likes_count",
             "tweets_count",
             "followers_count",
             "following_count",
             "is_verified",
             "is_private",
-            "user_id"
+            "user_id",
         ]
 
     def __repr__(self):

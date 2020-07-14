@@ -3,10 +3,11 @@ from requests_html import HTMLSession, HTML
 from datetime import datetime
 from urllib.parse import quote
 from lxml.etree import ParserError
+from .exceptions import ProfileUnavailable
+from .headers import get_headers
 
-session = HTMLSession()
 
-def get_tweets(query, pages=25):
+def get_tweets(query, pages=1):
     """Gets tweets for a given user, via the Twitter frontend API."""
 
     after_part = (
@@ -18,15 +19,8 @@ def get_tweets(query, pages=25):
     else:
         url = f"https://twitter.com/i/profiles/show/{query}/timeline/tweets?"
     url += after_part
-
-    headers = {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Referer": f"https://twitter.com/{query}",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/603.3.8 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.8",
-        "X-Twitter-Active-User": "yes",
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept-Language": "en-US",
-    }
+    headers = get_headers(query)
+    session = HTMLSession()
 
     def gen_tweets(pages):
         r = session.get(url, headers=headers)
@@ -37,9 +31,7 @@ def get_tweets(query, pages=25):
                     html=r.json()["items_html"], url="bunk", default_encoding="utf-8"
                 )
             except KeyError:
-                raise ValueError(
-                    f'Oops! Either "{query}" does not exist or is private.'
-                )
+                raise ProfileUnavailable()
             except ParserError:
                 break
 
@@ -55,7 +47,6 @@ def get_tweets(query, pages=25):
                     text = tweet.find(".tweet-text")[0].full_text
                 except IndexError:  # issue #50
                     continue
-
 
                 tweet_id = tweet.attrs["data-item-id"]
 
@@ -98,11 +89,13 @@ def get_tweets(query, pages=25):
                 urls = [
                     url_node.attrs["data-expanded-url"]
                     for url_node in (
-                        tweet.find("a.twitter-timeline-link:not(.u-hidden)") +
-                        tweet.find("[class='js-tweet-text-container'] a[data-expanded-url]")
+                        tweet.find("a.twitter-timeline-link:not(.u-hidden)")
+                        + tweet.find(
+                            "[class='js-tweet-text-container'] a[data-expanded-url]"
+                        )
                     )
                 ]
-                urls = list(set(urls)) # delete duplicated elements
+                urls = list(set(urls))  # delete duplicated elements
 
                 photos = [
                     photo_node.attrs["data-image-url"]
@@ -158,9 +151,9 @@ def get_tweets(query, pages=25):
             last_tweet = html.find(".stream-item")[-1].attrs["data-item-id"]
 
             for tweet in tweets:
-                tweet["text"] = re.sub(r"(\S)http", "\g<1> http", tweet["text"], 1)
+                tweet["text"] = re.sub(r"(\S)http", r"\g<1> http", tweet["text"], 1)
                 tweet["text"] = re.sub(
-                    r"(\S)pic\.twitter", "\g<1> pic.twitter", tweet["text"], 1
+                    r"(\S)pic\.twitter", r"\g<1> pic.twitter", tweet["text"], 1
                 )
                 yield tweet
 
@@ -168,9 +161,3 @@ def get_tweets(query, pages=25):
             pages += -1
 
     yield from gen_tweets(pages)
-
-
-# for searching:
-#
-# https://twitter.com/i/search/timeline?vertical=default&q=foof&src=typd&composed_count=0&include_available_features=1&include_entities=1&include_new_items_bar=true&interval=30000&latent_count=0
-# replace 'foof' with your query string.  Not sure how to decode yet but it seems to work.

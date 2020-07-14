@@ -1,0 +1,2 @@
+class ProfileUnavailable(Exception):
+    pass
